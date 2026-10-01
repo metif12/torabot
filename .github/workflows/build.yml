@@ -29,13 +29,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # `make` leaves the compiler at the root of the V checkout, not in a bin
+      # directory, so the checkout root itself is what goes on PATH.
       - name: Install V
         shell: bash
         run: |
-          git clone --depth=1 https://github.com/vlang/v
+          git clone --depth=1 https://github.com/vlang/v v
           cd v
-          make
-          echo "$PWD/bin" >> "$GITHUB_PATH"
+          if [ "${{ runner.os }}" = "Windows" ]; then ./make.bat; else make; fi
+          echo "$PWD" >> "$GITHUB_PATH"
 
       - name: V version
         run: v version
@@ -60,10 +62,10 @@ jobs:
 
       - name: Install V
         run: |
-          git clone --depth=1 https://github.com/vlang/v
+          git clone --depth=1 https://github.com/vlang/v v
           cd v
           make
-          echo "$PWD/bin" >> "$GITHUB_PATH"
+          echo "$PWD" >> "$GITHUB_PATH"
 
       - name: Normalise architecture name
         id: arch
@@ -77,13 +79,13 @@ jobs:
       - name: Build
         run: ./scripts/build.sh linux "${{ steps.arch.outputs.name }}"
 
+      # An MCP server speaks JSON-RPC on stdio and prints nothing on startup,
+      # so the check is that it answers a frame rather than crashing on load.
       - name: Smoke test the binary
         run: |
-          # An MCP server speaks JSON-RPC on stdio and prints nothing on
-          # startup, so the check is that it answers a frame rather than
-          # crashing on load.
           printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
-            | timeout 20 "./dist/torabot-linux-${{ steps.arch.outputs.name }}"
+            | timeout 20 "./dist/torabot-linux-${{ steps.arch.outputs.name }}" \
+            | grep -q '"serverInfo"'
 
       - uses: actions/upload-artifact@v4
         with:
@@ -98,10 +100,10 @@ jobs:
 
       - name: Install V
         run: |
-          git clone --depth=1 https://github.com/vlang/v
+          git clone --depth=1 https://github.com/vlang/v v
           cd v
           ./make.bat
-          echo "$PWD/bin" >> "$GITHUB_PATH"
+          echo "$PWD" >> "$GITHUB_PATH"
 
       - name: Build
         run: ./scripts/build.sh windows amd64
@@ -112,7 +114,7 @@ jobs:
             "jsonrpc":"2.0","id":1,"method":"initialize",
             "params":{"protocolVersion":"2025-11-25","capabilities":{},
             "clientInfo":{"name":"ci","version":"1"}}
-          }' | .\dist\torabot-windows-amd64.exe
+          }' | .\dist\torabot-windows-amd64.exe | Select-String -Pattern 'serverInfo'
 
       - uses: actions/upload-artifact@v4
         with:
@@ -127,10 +129,10 @@ jobs:
 
       - name: Install V
         run: |
-          git clone --depth=1 https://github.com/vlang/v
+          git clone --depth=1 https://github.com/vlang/v v
           cd v
           make
-          echo "$PWD/bin" >> "$GITHUB_PATH"
+          echo "$PWD" >> "$GITHUB_PATH"
 
       - name: Normalise architecture name
         id: arch

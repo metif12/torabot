@@ -34,10 +34,11 @@ jobs:
       - name: Install V
         shell: bash
         run: |
-          git clone --depth=1 https://github.com/vlang/v
+          git clone --depth=1 https://github.com/vlang/v v
           cd v
           if [ "${{ runner.os }}" = "Windows" ]; then ./make.bat; else make; fi
-          echo "$PWD/bin" >> "$GITHUB_PATH"
+          # `make` leaves the compiler at the checkout root, not in bin/.
+          echo "$PWD" >> "$GITHUB_PATH"
 
       - name: Build and package
         shell: bash

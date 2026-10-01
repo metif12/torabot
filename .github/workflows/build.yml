@@ -1,0 +1,150 @@
+name: build
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Runs the unit tests on every platform the project targets. Each file is
+  # built and run separately: building them together in one v invocation can
+  # fail in libgc, and the resulting exec failed (SetHandleInformation) says
+  # nothing about the real problem. See the README.
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux
+          - os: windows-latest
+            name: windows
+          - os: macos-latest
+            name: macos
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install V
+        shell: bash
+        run: |
+          git clone --depth=1 https://github.com/vlang/v
+          cd v
+          make
+          echo "$PWD/bin" >> "$GITHUB_PATH"
+
+      - name: V version
+        run: v version
+
+      - name: Tests (posix)
+        if: runner.os != 'Windows'
+        run: ./scripts/test.sh
+
+      - name: Tests (windows)
+        if: runner.os == 'Windows'
+        run: ./scripts/test.ps1
+
+  # Builds a native binary for the runner's platform. Cross-compiling from a
+  # single host would need a full per-target C toolchain, including a
+  # cross-built libgc; building natively avoids that and produces binaries
+  # known to run on the platform they were produced for.
+  build-linux:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install V
+        run: |
+          git clone --depth=1 https://github.com/vlang/v
+          cd v
+          make
+          echo "$PWD/bin" >> "$GITHUB_PATH"
+
+      - name: Normalise architecture name
+        id: arch
+        run: |
+          case "$(uname -m)" in
+            x86_64) echo "name=amd64" ;;
+            aarch64 | arm64) echo "name=arm64" ;;
+            *) echo "name=$(uname -m)" ;;
+          esac
+
+      - name: Build
+        run: ./scripts/build.sh linux "${{ steps.arch.outputs.name }}"
+
+      - name: Smoke test the binary
+        run: |
+          # An MCP server speaks JSON-RPC on stdio and prints nothing on
+          # startup, so the check is that it answers a frame rather than
+          # crashing on load.
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            | timeout 20 "./dist/torabot-linux-${{ steps.arch.outputs.name }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: torabot-linux-${{ steps.arch.outputs.name }}
+          path: dist/
+
+  build-windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install V
+        run: |
+          git clone --depth=1 https://github.com/vlang/v
+          cd v
+          ./make.bat
+          echo "$PWD/bin" >> "$GITHUB_PATH"
+
+      - name: Build
+        run: ./scripts/build.sh windows amd64
+
+      - name: Smoke test the binary
+        run: |
+          '{
+            "jsonrpc":"2.0","id":1,"method":"initialize",
+            "params":{"protocolVersion":"2025-11-25","capabilities":{},
+            "clientInfo":{"name":"ci","version":"1"}}
+          }' | .\dist\torabot-windows-amd64.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: torabot-windows-amd64
+          path: dist/
+
+  build-macos:
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install V
+        run: |
+          git clone --depth=1 https://github.com/vlang/v
+          cd v
+          make
+          echo "$PWD/bin" >> "$GITHUB_PATH"
+
+      - name: Normalise architecture name
+        id: arch
+        run: |
+          case "$(uname -m)" in
+            x86_64) echo "name=amd64" ;;
+            aarch64 | arm64) echo "name=arm64" ;;
+            *) echo "name=$(uname -m)" ;;
+          esac
+
+      - name: Build
+        run: ./scripts/build.sh macos "${{ steps.arch.outputs.name }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: torabot-macos-${{ steps.arch.outputs.name }}
+          path: dist/

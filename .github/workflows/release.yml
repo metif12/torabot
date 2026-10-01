@@ -1,0 +1,123 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish under, e.g. v0.1.0'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  # Each platform builds natively and uploads its artifact; the publish job
+  # then attaches all of them to one release. Native builds avoid needing a
+  # cross C toolchain with a cross-built libgc for every target.
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: windows-latest
+            platform: windows
+          - os: macos-latest
+            platform: macos
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install V
+        shell: bash
+        run: |
+          git clone --depth=1 https://github.com/vlang/v
+          cd v
+          if [ "${{ runner.os }}" = "Windows" ]; then ./make.bat; else make; fi
+          echo "$PWD/bin" >> "$GITHUB_PATH"
+
+      - name: Build and package
+        shell: bash
+        run: |
+          set -eu
+          arch="$(uname -m)"
+          case "$arch" in
+            x86_64) arch=amd64 ;;
+            aarch64 | arm64) arch=arm64 ;;
+          esac
+          ./scripts/build.sh "${{ matrix.platform }}" "$arch" dist
+          cd dist
+          base="torabot-${{ matrix.platform }}-$arch"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            zip -r "$base.zip" "$base.exe"
+          else
+            tar -czf "$base.tar.gz" "$base"
+          fi
+          shasum -a 256 "$base".* > "$base.sha256"
+          cat "$base.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.platform }}
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: find artifacts -type f | sort
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: artifacts/**
+          generate_release_notes: true
+          body: |
+            ## torabot ${{ github.event.inputs.tag || github.ref_name }}
+
+            A Discord MCP server written in V. No Node.js, no Python, no external
+            dependencies.
+
+            ### Install
+
+            Download the archive for your platform, extract it, then point your
+            MCP client at the binary:
+
+            ```json
+            {
+              "mcpServers": {
+                "discord": {
+                  "command": ["/path/to/torabot"],
+                  "environment": { "DISCORD_TOKEN": "your-bot-token" }
+                }
+              }
+            }
+            ```
+
+            See the [README](https://github.com/${{ github.repository }}) for
+            bot setup, including the Message Content Intent that message reading
+            requires.
+
+            ### Verifying a download
+
+            Each archive has a matching `.sha256` file:
+
+            ```
+            sha256sum -c torabot-linux-amd64.tar.gz.sha256   # linux
+            shasum -a 256 -c torabot-macos-arm64.tar.gz.sha256   # macos
+            ```
+
+            ### Building on Windows
+
+            Use the `.exe` directly. The Linux and macOS builds are separate
+            binaries; there is no single cross-platform executable.

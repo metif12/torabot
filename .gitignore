@@ -5,6 +5,7 @@
 *.exe
 *.tmp.c
 src.c
+dist/
 
 # V module cache, if one is created inside the project.
 .vmodules/

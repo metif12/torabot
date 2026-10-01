@@ -11,11 +11,13 @@ post messages, and watch messages as they arrive over the Discord gateway.
 - [Requirements](#requirements)
 - [Setup](#setup)
 - [Build](#build)
+- [Scripts](#scripts)
 - [Register with an MCP client](#register-with-an-mcp-client)
 - [Tools](#tools)
 - [How it works](#how-it-works)
 - [Upstream bugs worked around](#upstream-bugs-worked-around)
 - [Tests](#tests)
+- [Releases](#releases)
 - [Troubleshooting](#troubleshooting)
 - [Limits](#limits)
 - [Layout](#layout)
@@ -60,21 +62,43 @@ later.
 
 ## Build
 
-```powershell
+```sh
 v.exe -cc tcc -d no_vschannel -o torabot.exe main.v
 ```
 
 Both flags matter:
 
-- **`-cc tcc`** forces the bundled TCC compiler. The implicit compiler path can
-  fail to build `libgc` and then fall back to a `gcc` that may not be installed,
-  which turns a working build into a confusing failure.
+- **`-cc tcc`** names the bundled TCC compiler explicitly. The implicit compiler
+  path can fail to build `libgc` and then fall back to a `gcc` that may not be
+  installed, which turns a working build into a confusing failure.
 - **`-d no_vschannel`** switches `net.http` off Windows Schannel and onto
   mbedTLS. Without it every request to `discord.com` fails at the TLS handshake
   with `0x80090308` (`SEC_E_INVALID_TOKEN`). See
-  [Upstream bugs](#upstream-bugs-worked-around).
+  [Upstream bug](#upstream-bug-worked-around).
 
 If `v` is not on your PATH, use the absolute path to the compiler.
+
+### Scripts
+
+```sh
+./scripts/build.sh                    # host defaults, -> dist/
+./scripts/build.sh linux amd64        # explicit target
+./scripts/test.sh                     # run the unit tests (posix)
+```
+
+```powershell
+.\scripts\build.sh windows amd64      # from Git Bash
+.\scripts\test.ps1                    # unit tests on Windows
+```
+
+Each target is built **natively on a runner for that platform**, not
+cross-compiled. A cross build needs a complete target C toolchain, including a
+cross-built `libgc`, and V passes `-cc` straight through to the C compiler with
+no triple handling of its own. Building natively avoids that and produces
+binaries known to run on the platform they were produced for.
+
+`-prod` drops debug info. TCC ignores it, so the Windows binary is the same
+size as a debug build.
 
 ## Register with an MCP client
 
@@ -155,13 +179,23 @@ monitoring, prefer one longer call over many short ones.
 
 ## How it works
 
-```
-main.v                 MCP server: tool registration, formatting, error text
-torabot/discord.v      Discord REST client
-torabot/gateway.v      Discord gateway: WebSocket, identify, heartbeat, dispatch
-torabot/http.v         HTTP/1.1 over mbedTLS
-torabot/inflate.v      DEFLATE handling for gateway frames
-torabot/args.v         Typed access to decoded tool arguments
+torabot/
+├─ v.mod
+├─ main.v# MCP server: tool registration, formatting
+├─ torabot/
+│  ├─ discord.v      # Discord REST client
+│  ├─ gateway.v      # gateway: WebSocket, identify, heartbeat, dispatch
+│  ├─ http.v         # HTTP/1.1 over mbedTLS
+│  ├─ inflate.v      # DEFLATE handling for gateway frames
+│  ├─ args.v         # typed access to decoded tool arguments
+│  └─ *_test.v       # unit tests
+├─ scripts/
+│  ├─ build.sh       # build wrapper, host defaults
+│  ├─ test.sh        # unit tests (posix)
+│  └─ test.ps1       # unit tests (Windows)
+└─ .github/workflows/
+   ├─ build.yml      # CI: tests on 3 OSes, native builds
+   └─ release.yml    # tag-triggered GitHub release
 ```
 
 The MCP layer is V's own `vlib/mcp`, which implements the **2025-11-25**
@@ -229,26 +263,41 @@ Workaround: build with `-d no_vschannel`.
 
 ## Tests
 
-```powershell
-v.exe -cc tcc -o t.exe torabot\http_test.v     ; .\t.exe
-v.exe -cc tcc -o t.exe torabot\discord_test.v  ; .\t.exe
-v.exe -cc tcc -o t.exe torabot\args_test.v     ; .\t.exe
-v.exe -cc tcc -o t.exe torabot\inflate_test.v  ; .\t.exe
+```sh
+./scripts/test.sh        # posix
 ```
 
-Run them one file at a time. `v test torabot\` builds the files concurrently,
-which on this machine trips the same `libgc` failure described under
-[Build](#build), and the resulting `exec failed (SetHandleInformation)` message
-says nothing useful about the real problem.
+```powershell
+.\scripts\test.ps1      # windows
+```
+
+Each file is built into its own binary and run separately. A single
+`v test torabot\` builds the files concurrently, which on this machine trips the
+same `libgc` failure described under [Build](#build), and the resulting
+`exec failed (SetHandleInformation)` message says nothing about the real
+problem. Splitting the runs keeps a failure attributable to one file.
 
 To confirm which failure you are actually looking at, build and run manually:
 
-```powershell
-v.exe -cc tcc -keepc -o probe.exe torabot\http_test.v ; .\probe.exe
+```sh
+v -keepc -o probe.exe torabot/http_test.v ; ./probe.exe
 ```
 
-`-keepc` leaves the generated C behind, which is worth doing when a build fails
+`-keepc` leaves the generated C behind, which is worth using when a build fails
 inside the C compiler rather than the V checker.
+
+## Releases
+
+Push a `v*` tag and the release workflow builds each platform natively,
+packages it with a `.sha256` file, and attaches everything to one GitHub
+release:
+
+```sh
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+Prebuilt binaries for every release are at
+[github.com/metif12/torabot/releases](https://github.com/metif12/torabot/releases).
 
 ## Troubleshooting
 

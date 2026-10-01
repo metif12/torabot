@@ -8,7 +8,11 @@
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$v = if ($env:V) { $env:V } else { 'v' }
+
+# VEXE matters when the compiler was downloaded as a release archive: it has no
+# vlib beside it, and without VEXE every build fails with
+# "builtin/ not included on module lookup path".
+$v = if ($env:V) { $env:V } elseif ($env:VEXE) { $env:VEXE } else { 'v' }
 
 $tests = @(
 	'torabot\http_test.v'

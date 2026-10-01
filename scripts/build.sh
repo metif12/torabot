@@ -16,7 +16,11 @@
 set -eu
 
 PROJECT_ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
-V="${V:-v}"
+
+# VEXE matters when the compiler was downloaded as a release archive: it has no
+# vlib beside it, and without VEXE every build fails with
+# "builtin/ not included on module lookup path".
+V="${V:-${VEXE:-v}}"
 
 host_os() {
 	case "$(uname -s)" in

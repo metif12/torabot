@@ -33,17 +33,7 @@ jobs:
 
       - name: Install V
         shell: bash
-        run: |
-          git clone --depth=1 https://github.com/vlang/v v
-          cd v
-          # Windows has no make; makev.bat is the bootstrap script there.
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            cmd //c makev.bat
-          else
-            make
-          fi
-          # `make` leaves the compiler at the checkout root, not in bin/.
-          echo "$PWD" >> "$GITHUB_PATH"
+        run: ./scripts/ci/install-v.sh
 
       - name: Build and package
         shell: bash

@@ -29,15 +29,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # `make` leaves the compiler at the root of the V checkout, not in a bin
-      # directory, so the checkout root itself is what goes on PATH.
+      # A released compiler, not a source build: makev.bat fails on Windows
+      # runners with "SetHandleInformation: The handle is invalid", and
+      # building V is not what this project needs from the runner.
       - name: Install V
         shell: bash
-        run: |
-          git clone --depth=1 https://github.com/vlang/v v
-          cd v
-          if [ "${{ runner.os }}" = "Windows" ]; then ./makev.bat; else make; fi
-          echo "$PWD" >> "$GITHUB_PATH"
+        run: ./scripts/ci/install-v.sh
 
       - name: V version
         run: v version
@@ -61,11 +58,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install V
-        run: |
-          git clone --depth=1 https://github.com/vlang/v v
-          cd v
-          make
-          echo "$PWD" >> "$GITHUB_PATH"
+        shell: bash
+        run: ./scripts/ci/install-v.sh
 
       - name: Normalise architecture name
         id: arch
@@ -100,17 +94,7 @@ jobs:
 
       - name: Install V
         shell: bash
-        run: |
-          git clone --depth=1 https://github.com/vlang/v v
-          cd v
-          # Windows has no make; makev.bat is the bootstrap script there.
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            cmd //c makev.bat
-          else
-            make
-          fi
-          # `make` leaves the compiler at the checkout root, not in bin/.
-          echo "$PWD" >> "$GITHUB_PATH"
+        run: ./scripts/ci/install-v.sh
 
       - name: Build
         shell: bash
@@ -135,11 +119,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install V
-        run: |
-          git clone --depth=1 https://github.com/vlang/v v
-          cd v
-          make
-          echo "$PWD" >> "$GITHUB_PATH"
+        shell: bash
+        run: ./scripts/ci/install-v.sh
 
       - name: Normalise architecture name
         id: arch

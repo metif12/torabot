@@ -21,17 +21,12 @@ jobs:
         include:
           - os: ubuntu-latest
             name: linux
-          - os: windows-latest
-            name: windows
           - os: macos-latest
             name: macos
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
-      # A released compiler, not a source build: makev.bat fails on Windows
-      # runners with "SetHandleInformation: The handle is invalid", and
-      # building V is not what this project needs from the runner.
       - name: Install V
         shell: bash
         run: ./scripts/ci/install-v.sh
@@ -39,13 +34,8 @@ jobs:
       - name: V version
         run: v version
 
-      - name: Tests (posix)
-        if: runner.os != 'Windows'
+      - name: Tests
         run: ./scripts/test.sh
-
-      - name: Tests (windows)
-        if: runner.os == 'Windows'
-        run: ./scripts/test.ps1
 
   # Builds a native binary for the runner's platform. Cross-compiling from a
   # single host would need a full per-target C toolchain, including a
@@ -86,9 +76,14 @@ jobs:
           name: torabot-linux-${{ steps.arch.outputs.name }}
           path: dist/
 
+  # The Windows binary is cross-compiled from Linux rather than built on a
+  # Windows runner: makev.bat fails there with "SetHandleInformation: The handle
+  # is invalid", and V's own TCC handles the Windows target from Linux. The
+  # smoke test then runs under wine, so the artifact is still verified rather
+  # than merely produced.
   build-windows:
     needs: test
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -96,15 +91,19 @@ jobs:
         shell: bash
         run: ./scripts/ci/install-v.sh
 
-      - name: Build
-        shell: bash
+      - name: Build windows/amd64
         run: ./scripts/build.sh windows amd64
 
-      - name: Smoke test the binary
-        shell: bash
+      - name: Install wine
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends wine wine32 wine64
+
+      - name: Smoke test under wine
         run: |
           printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
-            | timeout 20 ./dist/torabot-windows-amd64.exe \
+            | timeout 90 wine ./dist/torabot-windows-amd64.exe \
             | grep -q '"serverInfo"'
 
       - uses: actions/upload-artifact@v4

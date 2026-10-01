@@ -352,11 +352,10 @@ fn (d &Discord) send(req HttpRequest) !HttpResponse {
 // rejects requests without a User-Agent and answers 401 without a valid
 // Authorization header.
 fn (d &Discord) default_headers(body string) map[string]string {
-	mut headers := map[string]string{
-		'Authorization': 'Bot ${d.token}'
-		'User-Agent':    'DiscordBot (tora, 0.1.0)'
-		'Accept':        'application/json'
-	}
+	mut headers := map[string]string{}
+	headers['Authorization'] = 'Bot ${d.token}'
+	headers['User-Agent'] = 'DiscordBot (tora, 0.1.0)'
+	headers['Accept'] = 'application/json'
 	if body != '' {
 		headers['Content-Type'] = 'application/json'
 	}

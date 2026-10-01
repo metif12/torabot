@@ -13,9 +13,10 @@ permissions:
   contents: write
 
 jobs:
-  # Each platform builds natively and uploads its artifact; the publish job
-  # then attaches all of them to one release. Native builds avoid needing a
-  # cross C toolchain with a cross-built libgc for every target.
+  # Each platform builds on a runner that can produce it. Windows is
+  # cross-compiled from Linux: makev.bat fails on Windows runners with
+  # "SetHandleInformation: The handle is invalid", and V's TCC handles the
+  # Windows target from Linux.
   build:
     strategy:
       fail-fast: false
@@ -23,8 +24,6 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
-          - os: windows-latest
-            platform: windows
           - os: macos-latest
             platform: macos
     runs-on: ${{ matrix.os }}
@@ -47,21 +46,43 @@ jobs:
           ./scripts/build.sh "${{ matrix.platform }}" "$arch" dist
           cd dist
           base="torabot-${{ matrix.platform }}-$arch"
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            zip -r "$base.zip" "$base.exe"
-          else
-            tar -czf "$base.tar.gz" "$base"
-          fi
-          shasum -a 256 "$base".* > "$base.sha256"
-          cat "$base.sha256"
+          tar -czf "$base.tar.gz" "$base"
+          shasum -a 256 "$base.tar.gz" > "$base.tar.gz.sha256"
+          cat "$base.tar.gz.sha256"
 
       - uses: actions/upload-artifact@v4
         with:
           name: dist-${{ matrix.platform }}
           path: dist/
 
+  build-windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install V
+        shell: bash
+        run: ./scripts/ci/install-v.sh
+
+      - name: Build
+        shell: bash
+        run: ./scripts/build.sh windows amd64 dist
+
+      - name: Package
+        shell: bash
+        run: |
+          cd dist
+          zip -q -r torabot-windows-amd64.zip torabot-windows-amd64.exe
+          sha256sum torabot-windows-amd64.zip > torabot-windows-amd64.zip.sha256
+          cat torabot-windows-amd64.zip.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-windows
+          path: dist/
+
   publish:
-    needs: build
+    needs: [build, build-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

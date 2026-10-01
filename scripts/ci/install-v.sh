@@ -1,75 +1,49 @@
 #!/bin/sh
 # ci/install-v.sh installs the V compiler into the workspace.
 #
-# Prefers a released binary over building from source: `makev.bat` on a Windows
-# runner fails with "SetHandleInformation: The handle is invalid" when TCC is
-# invoked in that environment, and building V is not what this project is
-# testing. The released compiler is built elsewhere and just downloaded here.
+# Building V on a Windows runner fails with "SetHandleInformation: The handle is
+# invalid", which is the same TCC-in-this-environment failure the README
+# documents for local builds. The released archive avoids the build entirely,
+# but the 0.5.2 tag predates the json2 module this project uses, so neither a
+# source build nor the release archive works there.
+#
+# What does work is running the Windows builds inside the V dev container, which
+# has a Linux toolchain and builds v.exe for Windows with its own TCC. This
+# script therefore installs the Linux compiler, and the Windows job builds the
+# project for Windows with `-os windows -cc tcc` from Linux.
 
 set -eu
 
-V_VERSION="${V_VERSION:-0.5.2}"
+V_REF="${V_REF:-master}"
 
 case "$(uname -s)" in
-	Linux*)
-		bin_name="v"
-		;;
-	Darwin*)
-		bin_name="v"
-		;;
-	CYGWIN* | MINGW* | MSYS*)
-		bin_name="v.exe"
-		;;
+	Linux*) ;;
+	Darwin*) ;;
+	CYGWIN* | MINGW* | MSYS*) ;;
 	*)
 		echo "unsupported host: $(uname -s)" >&2
 		exit 2
 		;;
 esac
 
-# The release archives are named per architecture, and only the Linux archive
-# covers both. x86_64 is 64-bit on both Linux and macOS, so uname maps directly.
-case "$(uname -m)" in
-	x86_64 | amd64) triple="x86_64" ;;
-	aarch64 | arm64) triple="arm64" ;;
-	*)
-		echo "unsupported arch: $(uname -m)" >&2
-		exit 2
-		;;
-esac
-
-case "$(uname -s)" in
-	Linux*)
-		# One archive serves both architectures.
-		archive="v_linux.zip"
-		;;
-	Darwin*)
-		archive="v_macos_${triple}.zip"
-		;;
-	*)
-		archive="v_windows.zip"
-		;;
-esac
-
 dest="${V_DEST:-$HOME/v}"
-mkdir -p "$dest"
 
-if [ ! -f "$dest/$bin_name" ]; then
-	url="https://github.com/vlang/v/releases/download/${V_VERSION}/${archive}"
-	echo "==> downloading $url"
-	curl -fsSL "$url" -o /tmp/v-lang.zip
-	rm -rf /tmp/v-lang-extract
-	unzip -q -o /tmp/v-lang.zip -d /tmp/v-lang-extract
-	# The archive holds a v/ directory with the compiler.
-	cp "/tmp/v-lang-extract/v/$bin_name" "$dest/$bin_name"
-	chmod +x "$dest/$bin_name"
-	rm -rf /tmp/v-lang.zip /tmp/v-lang-extract
+if [ ! -x "$dest/v" ]; then
+	echo "==> cloning vlang/v ($V_REF)"
+	rm -rf "$dest"
+	git clone --depth=1 --branch "$V_REF" https://github.com/vlang/v "$dest"
+	echo "==> building the compiler"
+	make -C "$dest" -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
+	chmod +x "$dest/v"
 fi
 
-# A downloaded compiler has no vlib next to it, so VEXE must point at the
-# extracted binary or every build fails with
+# VEXE points the compiler at its own checkout, which is how it locates vlib.
+# Without it a downloaded or relocated compiler fails with
 # "builtin/ not included on module lookup path".
-export VEXE="$dest/$bin_name"
-echo "VEXE=$VEXE" >> "$GITHUB_ENV"
-echo "$dest" >> "$GITHUB_PATH"
+VEXE="$dest/v"
+export VEXE
+
+[ -n "${GITHUB_ENV:-}" ] && echo "VEXE=$VEXE" >> "$GITHUB_ENV"
+[ -n "${GITHUB_PATH:-}" ] && echo "$dest" >> "$GITHUB_PATH"
 
 "$VEXE" version

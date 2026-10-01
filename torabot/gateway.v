@@ -156,11 +156,10 @@ pub fn (mut g Gateway) connect() ! {
 
 // identify sends the Identify payload.
 fn (mut g Gateway) identify() ! {
-	properties := map[string]string{
-		'os':      'linux'
-		'browser': 'torabot'
-		'device':  'torabot'
-	}
+	mut properties := map[string]string{}
+	properties['os'] = 'linux'
+	properties['browser'] = 'torabot'
+	properties['device'] = 'torabot'
 	body := json.encode(IdentifyPayload{
 		token:      g.token
 		intents:    default_intents

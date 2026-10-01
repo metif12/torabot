@@ -151,7 +151,7 @@ watch_messages(channel_ids=["123..."], seconds=30, max_messages=100)
 
 It blocks for the requested duration, so keep `seconds` modest. Each call opens
 its own gateway connection, which costs one Identify handshake; for sustained
-polling of live traffic, prefer this over repeated short calls.
+monitoring, prefer one longer call over many short ones.
 
 ## How it works
 
@@ -168,6 +168,17 @@ The MCP layer is V's own `vlib/mcp`, which implements the **2025-11-25**
 revision of the specification. That revision is the right choice here: the
 newer `2026-07-28` revision removes the `initialize` handshake in favour of a
 stateless core, and clients that still send the handshake cannot talk to it.
+
+### Gateway compression is off, on purpose
+
+`gateway_url` does not request `compress=zlib-stream`, so gateway frames arrive
+as plain JSON and no inflation happens. At a few hundred bytes per frame the
+bandwidth saving would be small next to the cost of a decompressor on the hot
+path, and leaving it off keeps the reader simple.
+
+`inflate.v` still inflates a frame that arrives compressed, and falls back to
+returning the raw bytes rather than failing, so the path stays correct if an
+edge node compresses regardless of what was requested.
 
 ### Why there is a hand-written HTTP client
 
@@ -193,39 +204,28 @@ list_guilds -> The bot is not a member of any server yet.
 watch_messages -> No messages received in 15s.
 ```
 
-## Upstream bugs worked around
+## Upstream bug worked around
 
-Both of these are defects in V, not in Discord, and both are reproducible.
-
-### 1. `net.http` on Windows cannot reach `discord.com`
+### `net.http` on Windows cannot reach `discord.com`
 
 `net.http` uses Schannel on Windows. Against `discord.com` the handshake fails
 with `0x80090308` (`SEC_E_INVALID_TOKEN`).
 
-What makes this a V bug rather than a Discord or Cloudflare policy: `curl.exe`
-shipped with Windows also uses Schannel and receives `200` from the same URL.
-Seven other Cloudflare-fronted hosts (`github.com`, `api.openai.com`,
-`api.anthropic.com`, `registry.npmjs.org`, `cdnjs.cloudflare.com`, `unpkg.com`,
-`discordapp.com` behaviour aside) all succeed through V. Only the Discord
-edge nodes reject V's ClientHello, and building with `-d no_vschannel` — which
-swaps the backend and nothing else — makes the same code return `200`.
+What makes this a V defect rather than a Discord or Cloudflare policy:
+
+- `curl.exe` shipped with Windows also uses Schannel, and receives `200` from
+  the same URL.
+- Seven other Cloudflare-fronted hosts (`github.com`, `api.openai.com`,
+  `api.anthropic.com`, `registry.npmjs.org`, `cdnjs.cloudflare.com`,
+  `unpkg.com`) all succeed through V. Only the Discord edge nodes are affected.
+- Disabling HTTP/2 changes nothing, so the ALPN compatibility shim in
+  `vschannel.c` is not involved.
+- Building with `-d no_vschannel` swaps the backend and nothing else, and the
+  same code then returns `200`.
+
+Reported upstream: <https://github.com/vlang/v/issues/29231>
 
 Workaround: build with `-d no_vschannel`.
-
-### 2. `compress.deflate` cannot inflate dynamic Huffman blocks
-
-`deflate.inflate` handles fixed Huffman blocks (BTYPE=1) but fails on dynamic
-ones (BTYPE=2) with `inflate: unexpected end of stream`. V's own compressor only
-ever emits fixed blocks, so its round-trip tests never exercise the path.
-
-Discord's gateway uses dynamic blocks, so a `compress=zlib-stream` connection
-cannot be read.
-
-Workaround: `gateway_url` does not request compression, so frames arrive as
-plain JSON. `inflate.v` still inflates if a frame ever is compressed, and
-returns the raw bytes rather than failing.
-
-Both have been reported upstream.
 
 ## Tests
 

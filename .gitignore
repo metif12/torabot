@@ -1,0 +1,11 @@
+# Bot credentials: never commit these.
+.env
+
+# Build artifacts.
+*.exe
+*.tmp.c
+src.c
+
+# V module cache, if one is created inside the project.
+.vmodules/
+vendor/

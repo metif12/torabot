@@ -1,0 +1,7 @@
+# V sources are checked out with LF everywhere so the compiler sees one
+# consistent line ending on all platforms.
+*.v text eol=lf
+v.mod text eol=lf
+README.md text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
